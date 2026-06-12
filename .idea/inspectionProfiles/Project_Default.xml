@@ -1,0 +1,42 @@
+<component name="InspectionProjectProfileManager">
+  <profile version="1.0">
+    <option name="myName" value="Project Default" />
+    <inspection_tool class="PyPackageRequirementsInspection" enabled="false" level="WARNING" enabled_by_default="false">
+      <option name="ignoredPackages">
+        <list>
+          <option value="importlib_metadata" />
+          <option value="importlib-metadata" />
+          <option value="importlib-resources" />
+          <option value="regex" />
+          <option value="zipp" />
+          <option value="blas" />
+          <option value="intel-openmp" />
+          <option value="mkl-service" />
+          <option value="mkl_fft" />
+          <option value="mkl_random" />
+          <option value="numpy-base" />
+          <option value="cffi" />
+          <option value="decord" />
+          <option value="flatbuffers" />
+          <option value="jax" />
+          <option value="mediapipe" />
+          <option value="ml-dtypes" />
+          <option value="opencv-contrib-python" />
+          <option value="opensim" />
+          <option value="opt-einsum" />
+          <option value="pycparser" />
+          <option value="python-rapidjson" />
+          <option value="sounddevice" />
+        </list>
+      </option>
+    </inspection_tool>
+    <inspection_tool class="PyStubPackagesAdvertiser" enabled="true" level="WARNING" enabled_by_default="true">
+      <option name="ignoredPackages">
+        <list>
+          <option value="scipy" />
+          <option value="pandas" />
+        </list>
+      </option>
+    </inspection_tool>
+  </profile>
+</component>
