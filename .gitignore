@@ -1,0 +1,44 @@
+# ==========================================
+# Python & Deep Learning Project Git Ignore
+# ==========================================
+
+# 1. Byte-compiled / optimized / DLL files (Like your untracked .pyc file)
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+.pytest_cache/
+
+# 2. Environments and Package Managers (If you ever use venv/conda inside the repo)
+.venv/
+venv/
+env/
+ENV/
+lib/
+bin/
+include/
+
+# 3. IDEs and Code Editors
+# Ignores PyCharm/IntelliJ settings (Like your staged .idea/vcs.xml file)
+.idea/
+.vscode/
+*.swp
+*.swo
+
+# 4. Operating System Files (Mac specific junk)
+.DS_Store
+.AppleDouble
+.LSOverride
+
+# 5. Data and Heavy Weights (CRITICAL for Deep Learning)
+# Never commit your local raw datasets or model checkpoint files to GitHub!
+Dataset/
+*.ogg
+*.wav
+*.mp3
+*.zip
+*.tar.gz
+*.pth
+*.pt
+*.h5
+*.ckpt
