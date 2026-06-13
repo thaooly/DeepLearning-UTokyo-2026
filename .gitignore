@@ -14,7 +14,6 @@ __pycache__/
 venv/
 env/
 ENV/
-lib/
 bin/
 include/
 
@@ -42,3 +41,6 @@ Dataset/
 *.pt
 *.h5
 *.ckpt
+
+# model weights
+checkpoints/
