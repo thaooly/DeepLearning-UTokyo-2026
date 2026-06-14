@@ -18,7 +18,7 @@ def main():
     # =====================================================================
     # PASTE SPECIFIC TIMESTAMP FILENAME HERE FROM YOUR CHECKPOINTS FOLDER
     # =====================================================================
-    TARGET_TIMESTAMP = "20260613_214936"
+    TARGET_TIMESTAMP = "20260614_112103"
     # =====================================================================
 
     metrics_path = f"checkpoints/metrics_{TARGET_TIMESTAMP}.json"

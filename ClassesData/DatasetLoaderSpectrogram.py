@@ -2,6 +2,7 @@ import csv
 import os
 import warnings
 
+import numpy as np
 import torch
 import torchaudio
 from torch.utils.data import DataLoader, Dataset
@@ -12,6 +13,36 @@ N_SAMPLES = 3 * 16000
 N_FFT = 512
 HOP_LENGTH = 256
 N_MELS = 64
+
+
+def _load_ogg_safe(filepath):
+    """
+    Platform-agnostic OGG loader compatible with all torchaudio versions.
+
+    Recent torchaudio releases (2.x+) attempt to use torchcodec as their default
+    audio backend, which requires FFmpeg shared libraries. On Windows without a
+    full-shared FFmpeg installation, this raises a RuntimeError at import time.
+
+    This function attempts torchaudio.load first. If torchcodec is unavailable,
+    it transparently falls back to soundfile, which reads OGG natively on all
+    platforms without any FFmpeg dependency.
+
+    Args:
+        filepath : path to the OGG audio file.
+
+    Returns:
+        Tuple (waveform, sample_rate) where waveform is a Tensor of shape (C, N).
+    """
+    try:
+        return torchaudio.load(filepath)
+    except RuntimeError:
+        import soundfile as sf
+        data, sr = sf.read(filepath, dtype="float32")
+        if data.ndim == 1:
+            data = data[np.newaxis, :]
+        else:
+            data = data.T
+        return torch.from_numpy(data.copy()), sr
 
 
 class GardenBirdDataset2D(Dataset):
@@ -48,11 +79,7 @@ class GardenBirdDataset2D(Dataset):
 
     def load_ogg(self, filepath):
 
-        with warnings.catch_warnings():
-            warnings.filterwarnings(
-                "ignore", message="In 2.9, this function's implementation.*"
-            )
-            waveform, sample_rate = torchaudio.load(filepath)
+        waveform, sample_rate = _load_ogg_safe(filepath)
 
         if sample_rate != self.sample_rate:
             raise RuntimeError("Expected 16000 Hz audio: " + filepath)
