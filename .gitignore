@@ -44,3 +44,5 @@ Dataset/
 
 # model weights
 checkpoints/
+# results
+results/
