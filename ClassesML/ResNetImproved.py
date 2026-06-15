@@ -73,7 +73,7 @@ class ResNetImproved(nn.Module):
         if use_tf_attention:
             self.layers.append(TFAttentionBlock())
 
-        layer = nn.AvgPool2d(kernel_size=(2, 2))
+        layer = nn.AdaptiveAvgPool2d((1, 1))
         self.layers.append(layer)
         layer = nn.Flatten()
         self.layers.append(layer)
