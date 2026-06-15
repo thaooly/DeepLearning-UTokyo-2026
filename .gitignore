@@ -31,7 +31,10 @@ include/
 
 # 5. Data and Heavy Weights (CRITICAL for Deep Learning)
 # Never commit your local raw datasets or model checkpoint files to GitHub!
-Dataset/
+Dataset/*
+!Dataset/**/
+!Dataset/*.py
+!Dataset/**/*.py
 *.ogg
 *.wav
 *.mp3
