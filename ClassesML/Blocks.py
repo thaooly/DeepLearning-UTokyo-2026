@@ -108,12 +108,19 @@ class BasicResNetBlock(nn.Module):
         if in_channels == out_channels:
             self.shortcut = nn.Identity()
         else:
-            self.shortcut = Conv2DBlock(in_channels=in_channels,
-                                        out_channels=out_channels,
-                                        kernel_size=kernel_size,
-                                        activation=activation,
-                                        batch_normalization=batch_normalization,
-                                        dropout_rate=dropout_rate)
+            shortcut_layers = [
+                nn.Conv2d(
+                    in_channels=in_channels,
+                    out_channels=out_channels,
+                    kernel_size=1,
+                    bias=not batch_normalization,
+                )
+            ]
+
+            if batch_normalization:
+                shortcut_layers.append(nn.BatchNorm2d(out_channels))
+
+            self.shortcut = nn.Sequential(*shortcut_layers)
 
     def forward(self, x):
         residual = x

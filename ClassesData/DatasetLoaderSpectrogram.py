@@ -1,111 +1,9 @@
-import csv
 import os
-import warnings
 
-import numpy as np
 import torch
-import torchaudio
-from torch.utils.data import DataLoader, Dataset
 
 
-SAMPLE_RATE = 16000
-N_SAMPLES = 3 * 16000
-N_FFT = 512
-HOP_LENGTH = 256
-N_MELS = 64
-
-
-def _load_ogg_safe(filepath):
-    """
-    Platform-agnostic OGG loader compatible with all torchaudio versions.
-
-    Recent torchaudio releases (2.x+) attempt to use torchcodec as their default
-    audio backend, which requires FFmpeg shared libraries. On Windows without a
-    full-shared FFmpeg installation, this raises a RuntimeError at import time.
-
-    This function attempts torchaudio.load first. If torchcodec is unavailable,
-    it transparently falls back to soundfile, which reads OGG natively on all
-    platforms without any FFmpeg dependency.
-
-    Args:
-        filepath : path to the OGG audio file.
-
-    Returns:
-        Tuple (waveform, sample_rate) where waveform is a Tensor of shape (C, N).
-    """
-    try:
-        return torchaudio.load(filepath)
-    except RuntimeError:
-        import soundfile as sf
-        data, sr = sf.read(filepath, dtype="float32")
-        if data.ndim == 1:
-            data = data[np.newaxis, :]
-        else:
-            data = data.T
-        return torch.from_numpy(data.copy()), sr
-
-
-class GardenBirdDataset2D(Dataset):
-    def __init__(self, rows, class_to_idx):
-
-        super(GardenBirdDataset2D, self).__init__()
-
-        self.rows = rows
-        self.class_to_idx = class_to_idx
-        self.sample_rate = SAMPLE_RATE
-        self.n_fft = N_FFT
-        self.hop_length = HOP_LENGTH
-        self.n_mels = N_MELS
-        self.mel_spectrogram = torchaudio.transforms.MelSpectrogram(
-            sample_rate=self.sample_rate,
-            n_fft=self.n_fft,
-            hop_length=self.hop_length,
-            n_mels=self.n_mels,
-            power=2.0,
-        )
-        self.amplitude_to_db = torchaudio.transforms.AmplitudeToDB(stype="power")
-
-    def __len__(self):
-        return len(self.rows)
-
-    def __getitem__(self, idx):
-
-        row = self.rows[idx]
-        waveform = self.load_ogg(row["filepath"])
-        spectrogram = self.waveform_to_spectrogram(waveform)
-        label = self.class_to_idx[row["species"]]
-
-        return spectrogram, torch.tensor(label, dtype=torch.long)
-
-    def load_ogg(self, filepath):
-
-        waveform, sample_rate = _load_ogg_safe(filepath)
-
-        if sample_rate != self.sample_rate:
-            raise RuntimeError("Expected 16000 Hz audio: " + filepath)
-
-        if waveform.shape[0] != 1:
-            raise RuntimeError("Expected mono audio: " + filepath)
-
-        waveform = waveform.squeeze(0)
-
-        if waveform.shape[0] != N_SAMPLES:
-            raise RuntimeError("Expected 3 seconds audio: " + filepath)
-
-        return waveform.float()
-
-    def waveform_to_spectrogram(self, waveform):
-
-        waveform = waveform - waveform.mean()
-        waveform = waveform / (waveform.std() + 1e-8)
-
-        waveform = waveform.unsqueeze(0)
-        spectrogram = self.mel_spectrogram(waveform)
-        spectrogram = self.amplitude_to_db(spectrogram)
-
-        spectrogram = (spectrogram - spectrogram.mean()) / (spectrogram.std() + 1e-8)
-
-        return spectrogram
+EXPECTED_INPUT_DIM = (1, 128, 301)
 
 
 class DatasetLoader2D:
@@ -113,126 +11,70 @@ class DatasetLoader2D:
 
         self.root = root
         self.batch_size = batch_size
-        self.classes = []
-        self.class_to_idx = {}
+        self.classes = self.load_classes()
 
     def load_spectrogram_labels_data(self):
 
-        train_loader, val_loader, input_dim, n_classes = self.load_torch_dataloaders()
+        train_data_batches = torch.load(os.path.join(self.root, "train_data_batches.pt"))
+        train_label_batches = torch.load(os.path.join(self.root, "train_label_batches.pt"))
 
-        train_dataset = self.loader_to_batches(train_loader)
-        val_dataset = self.loader_to_batches(val_loader)
+        val_data_batches = torch.load(os.path.join(self.root, "val_data_batches.pt"))
+        val_label_batches = torch.load(os.path.join(self.root, "val_label_batches.pt"))
+
+        train_data_batches = [batch.float() for batch in train_data_batches]
+        val_data_batches = [batch.float() for batch in val_data_batches]
+
+        self.check_spectrogram_batches(train_data_batches, train_label_batches, "train")
+        self.check_spectrogram_batches(val_data_batches, val_label_batches, "val")
+
+        train_dataset = [train_data_batches, train_label_batches]
+        val_dataset = [val_data_batches, val_label_batches]
+
+        input_dim = train_dataset[0][0].numpy().shape[1:]
+        n_classes = len(self.classes)
 
         return train_dataset, val_dataset, input_dim, n_classes
 
     def load_test_spectrogram_labels_data(self):
 
-        rows = self.load_rows()
-        rows_test = self.rows_for_split(rows, "test")
+        test_data_batches = torch.load(os.path.join(self.root, "test_data_batches.pt"))
+        test_label_batches = torch.load(os.path.join(self.root, "test_label_batches.pt"))
 
-        dataset_test = GardenBirdDataset2D(rows=rows_test, class_to_idx=self.class_to_idx)
+        test_data_batches = [batch.float() for batch in test_data_batches]
+        self.check_spectrogram_batches(test_data_batches, test_label_batches, "test")
+        test_dataset = [test_data_batches, test_label_batches]
 
-        loader_test = DataLoader(
-            dataset_test, batch_size=self.batch_size, shuffle=False
-        )
+        return test_dataset
 
-        return self.loader_to_batches(loader_test)
+    def load_classes(self):
 
-    def load_torch_dataloaders(self):
+        classes_path = os.path.join(self.root, "classes.txt")
 
-        rows = self.load_rows()
-        rows_train = self.rows_for_split(rows, "train")
-        rows_val = self.rows_for_split(rows, "val")
+        with open(classes_path, "r", encoding="utf-8") as f:
+            classes = [line.strip() for line in f.readlines()]
 
-        dataset_train = GardenBirdDataset2D(
-            rows=rows_train, class_to_idx=self.class_to_idx
-        )
+        return classes
 
-        dataset_val = GardenBirdDataset2D(rows=rows_val, class_to_idx=self.class_to_idx)
+    def check_spectrogram_batches(self, data_batches, label_batches, split):
 
-        train_loader = DataLoader(
-            dataset_train, batch_size=self.batch_size, shuffle=True
-        )
+        normalization_path = os.path.join(self.root, "spectrogram_normalization.pt")
 
-        val_loader = DataLoader(dataset_val, batch_size=self.batch_size, shuffle=False)
+        if not os.path.exists(normalization_path):
+            raise RuntimeError(
+                "spectrogram_normalization.pt not found. "
+                "Regenerate spectrograms with Dataset/make_garden_spectrogram_pt_dataset.py"
+            )
 
-        input_dim = dataset_train[0][0].shape
-        n_classes = len(self.classes)
+        if len(data_batches) != len(label_batches):
+            raise RuntimeError(split + " data and label batches do not match.")
 
-        return train_loader, val_loader, input_dim, n_classes
+        input_dim = tuple(data_batches[0].shape[1:])
 
-    def loader_to_batches(self, loader):
-
-        x_batches = []
-        y_batches = []
-
-        for x, y in loader:
-            x_batches.append(x.float())
-            y_batches.append(y.long())
-
-        return [x_batches, y_batches]
-
-    def load_rows(self):
-
-        metadata_path = os.path.join(self.root, "metadata_subset.csv")
-
-        if not os.path.exists(metadata_path):
-            raise RuntimeError("metadata_subset.csv not found in " + self.root)
-
-        rows = self.load_rows_from_metadata(metadata_path)
-
-        classes = sorted(
-            list(set([row["species"] for row in rows])), key=lambda x: x.lower()
-        )
-        self.classes = classes
-        self.class_to_idx = {name: idx for idx, name in enumerate(classes)}
-
-        return rows
-
-    def load_rows_from_metadata(self, metadata_path):
-
-        rows = []
-
-        with open(metadata_path, "r", encoding="utf-8") as f:
-            reader = csv.DictReader(f)
-
-            for row in reader:
-                split = row["split"]
-                species = row["species"]
-                filename = row["filename"]
-                filepath = self.find_audio_file(split, species, filename)
-
-                rows.append(
-                    {
-                        "filepath": filepath,
-                        "filename": filename,
-                        "species": species,
-                        "split": split,
-                    }
-                )
-
-        return rows
-
-    def rows_for_split(self, rows, split):
-
-        rows_split = [row for row in rows if row["split"] == split]
-
-        if len(rows_split) == 0:
-            raise RuntimeError("No " + split + " data found in " + self.root)
-
-        return rows_split
-
-    def find_audio_file(self, split, species, filename):
-
-        filepath = os.path.join(
-            self.root, split, self.safe_species_dirname(species), filename
-        )
-
-        if os.path.exists(filepath):
-            return filepath
-
-        raise RuntimeError("Audio file not found: " + filepath)
-
-    def safe_species_dirname(self, name):
-
-        return name.replace("/", "_").replace("\\", "_").strip()
+        if input_dim != EXPECTED_INPUT_DIM:
+            raise RuntimeError(
+                "Expected spectrogram shape "
+                + str(EXPECTED_INPUT_DIM)
+                + ", got "
+                + str(input_dim)
+                + ". Regenerate Dataset/mygardenbird_spectrogram_pt."
+            )
