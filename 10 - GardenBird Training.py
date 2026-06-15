@@ -15,20 +15,20 @@ def main():
     print(f"Using device: {device}")
 
     path_parent_project = os.getcwd()
-    dataset_audio_path = os.path.join(path_parent_project, "Dataset", "mygardenbird_ogg", "")
+    dataset_audio_path = os.path.join(path_parent_project, "Dataset", "mygardenbird_spectrogram_pt", "")
 
     # 1. Load Data Splits (Train & Val)
     dataset = DatasetLoader2D(root=dataset_audio_path, batch_size=32)
     train_dataset, val_dataset, input_dim, n_classes = dataset.load_spectrogram_labels_data()
 
-    """x_train = train_dataset[0]
-        y_train = train_dataset[1]
-        x_valid = val_dataset[0]
-        y_valid = val_dataset[1]"""
+    x_train = train_dataset[0]
+    y_train = train_dataset[1]
+    x_valid = val_dataset[0]
+    y_valid = val_dataset[1]
 
-    # Fast testing constraints (Remove or comment out when doing your final, full training runs)
-    x_train, y_train = train_dataset[0][:2], train_dataset[1][:2]
-    x_valid, y_valid = val_dataset[0][:2], val_dataset[1][:2]
+    # Fast testing constraints:
+    # x_train, y_train = train_dataset[0][:2], train_dataset[1][:2]
+    # x_valid, y_valid = val_dataset[0][:2], val_dataset[1][:2]
 
     # Verify basic metadata
     print("=" * 50)
@@ -41,14 +41,22 @@ def main():
     hyperparameter = dict(
         input_dim=input_dim,
         output_dim=n_classes,
-        hidden_layers_size=[64, 128],
+        hidden_layers_size=[256, 128],
         activation="relu",
         kernel_size=(5, 5),
-        filters=[4, 8, 16, 16, 16],
+        filters=[8, 16, 32, 64, 128],
+        pool_every_stage=True,
+        pool_output_size=(4, 8),
         batch_normalization=True,
-        dropout_rate=0.01,
+        dropout_rate=0.08,
+        optimizer="adamw",
         learning_rate=0.001,
-        max_epoch=20
+        weight_decay=1e-4,
+        patience_lr=6,
+        lr_factor=0.5,
+        restore_best_model=True,
+        max_grad_norm=5.0,
+        max_epoch=50
     )
 
     # 3. Instantiate Architecture & Setup Scope Environment

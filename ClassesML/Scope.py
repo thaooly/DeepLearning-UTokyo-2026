@@ -9,10 +9,31 @@ class ScopeClassifier:
     def __init__(self,model,hyperparameters):
 
         self.criterion = nn.CrossEntropyLoss()
-        self.optimizer = optim.Adam(model.parameters(),lr=hyperparameters["learning_rate"])
+
+        weight_decay = hyperparameters.get("weight_decay", 0.0)
+        optimizer_name = hyperparameters.get("optimizer", "adam")
+
+        if optimizer_name == "adamw":
+            self.optimizer = optim.AdamW(
+                model.parameters(),
+                lr=hyperparameters["learning_rate"],
+                weight_decay=weight_decay,
+            )
+        else:
+            self.optimizer = optim.Adam(
+                model.parameters(),
+                lr=hyperparameters["learning_rate"],
+                weight_decay=weight_decay,
+            )
         
         if "patience_lr" in hyperparameters:
-            self.scheduler = ReduceLROnPlateau(self.optimizer,mode='max',patience=hyperparameters["patience_lr"],factor=0.1)
+            lr_factor = hyperparameters.get("lr_factor", 0.1)
+            self.scheduler = ReduceLROnPlateau(
+                self.optimizer,
+                mode='max',
+                patience=hyperparameters["patience_lr"],
+                factor=lr_factor,
+            )
             #after patience epoch, if the accuracy isn't changed, we divide by 10 the learning rate
         else:
             self.scheduler = None 

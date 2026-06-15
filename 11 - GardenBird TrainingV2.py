@@ -117,7 +117,7 @@ def main():
     print(f"Training device: {device}")
 
     path_parent_project = os.getcwd()
-    dataset_audio_path  = os.path.join(path_parent_project, "Dataset", "mygardenbird_ogg", "")
+    dataset_audio_path  = os.path.join(path_parent_project, "Dataset", "mygardenbird_spectrogram_pt", "")
 
     # ------------------------------------------------------------------
     # Hyperparameters
@@ -166,10 +166,10 @@ def main():
         # Frequency bin indices for the band-pass mask (C2 projection).
         # At N_FFT=512 and sr=16 kHz, frequency resolution ≈ 31.25 Hz/bin:
         #   pocs_f_min_bin=2  → ~62 Hz lower guard (removes DC artefacts)
-        #   pocs_f_max_bin=50 → ~1562 Hz upper bound within 64 output bins
+        #   pocs_f_max_bin=128 → upper bound within 128 mel bins
         pocs_n_iter         = 10,
         pocs_f_min_bin      = 2,
-        pocs_f_max_bin      = 50,
+        pocs_f_max_bin      = 128,
     )
 
     # ------------------------------------------------------------------
@@ -185,19 +185,17 @@ def main():
     print(f"  Input shape : {input_dim}")
     print(f"  Classes     : {n_classes}  →  {dataset.classes}")
 
-    # Quick-test mode: restrict to 2 batches to verify the full pipeline before
-    # committing to a full training run. Comment out these 4 lines and uncomment
-    # the block below for a complete experiment.
-    x_train = train_dataset[0][:2]
-    y_train = train_dataset[1][:2]
-    x_valid = val_dataset[0][:2]
-    y_valid = val_dataset[1][:2]
-
     # Full training :
-    # x_train = train_dataset[0]
-    # y_train = train_dataset[1]
-    # x_valid = val_dataset[0]
-    # y_valid = val_dataset[1]
+    x_train = train_dataset[0]
+    y_train = train_dataset[1]
+    x_valid = val_dataset[0]
+    y_valid = val_dataset[1]
+
+    # Quick-test mode:
+    # x_train = train_dataset[0][:2]
+    # y_train = train_dataset[1][:2]
+    # x_valid = val_dataset[0][:2]
+    # y_valid = val_dataset[1][:2]
 
     # ------------------------------------------------------------------
     # 2. AutoEncoder pre-training (optional)
