@@ -14,7 +14,7 @@ matplotlib.use("TkAgg")
 def main():
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
     print(f"Using evaluation device: {device}")
-
+ 
     # =====================================================================
     # PASTE SPECIFIC TIMESTAMP FILENAME HERE FROM YOUR CHECKPOINTS FOLDER
     # =====================================================================
