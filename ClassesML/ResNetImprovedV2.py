@@ -5,51 +5,17 @@ from Utilities.Utilities import Utilities
 
 class ResNetImprovedV2(nn.Module):
     """
-    Extended ResNet classifier for 2-D audio spectrograms.
+    Same backbone as the course ResNet, with optional add-ons turned on/off
+    via flags in hyperparameters:
 
-    Builds on the baseline ResNet from the course by optionally inserting
-    two attention modules controlled via boolean flags in hyperparameters,
-    and by adding the progressive pooling strategy validated in a teammate's
-    revised baseline ResNet:
+        use_se_block      : adds a SEBlock after each residual stage
+        use_tf_attention   : adds a TFAttentionBlock before the final pooling
+        pool_every_stage   : adds MaxPool2d(2,2) after each stage, halving F/T each time.
+        pool_output_size   : controls the last pooling before Flatten.
+                              None -> AvgPool2d(2,2) (default)
+                              tuple (h,w) -> AdaptiveAvgPool2d((h,w))
 
-        "use_se_block"     (bool) : if True, a SEBlock is appended after each
-                                    pair of BasicResNetBlocks to perform
-                                    channel-wise feature recalibration.
-
-        "use_tf_attention" (bool) : if True, a TFAttentionBlock is inserted
-                                    before the final pooling layer to apply
-                                    joint time-frequency spatial attention.
-
-        "pool_every_stage"  (bool) : if True, a MaxPool2d(2,2) is appended
-                                    after each of the 4 residual stages,
-                                    progressively halving F and T. This keeps
-                                    feature map memory bounded in deeper
-                                    layers (critical for the large spectrograms
-                                    produced by N_MELS=128) and reduces the
-                                    parameter count of the final LazyLinear,
-                                    which in turn reduces overfitting risk.
-                                    Default False, matching the original
-                                    architecture (no intermediate pooling).
-
-        "pool_output_size"  (tuple or None) : controls the final pooling layer
-                                    before the classification head.
-                                    If None (default): nn.AvgPool2d(kernel_size=(2,2)),
-                                    matching the original behaviour.
-                                    If a tuple (h, w): nn.AdaptiveAvgPool2d((h, w)),
-                                    giving direct control over the Flatten size
-                                    and therefore the LazyLinear parameter count.
-                                    E.g. (1, 1) for a fully global pool (minimal
-                                    parameters, used in early diagnostics), or
-                                    (4, 4) as a compromise retaining some spatial
-                                    structure while still controlling capacity.
-
-    All remaining hyperparameters are identical to the baseline ResNet:
-        input_dim, output_dim, hidden_layers_size, activation, kernel_size,
-        filters, batch_normalization, dropout_rate.
-
-    The network accepts tensors of shape (B, C, F, T) and returns logits
-    of shape (B, output_dim), making it a drop-in replacement for ResNet
-    with any existing Trainer and DataLoader.
+    Everything else is the same as the baseline ResNet.
     """
 
     def __init__(self, hyperparameters):
@@ -73,7 +39,7 @@ class ResNetImprovedV2(nn.Module):
 
         self.layers = nn.ModuleList()
 
-        # Initial projection: map input channels to the first filter bank.
+        # first conv, maps input channels to filters[0]
         self.layers.append(
             Conv2DBlock(in_channels=self.input_dim[0],
                         out_channels=self.filters[0],
@@ -83,8 +49,7 @@ class ResNetImprovedV2(nn.Module):
                         dropout_rate=self.dropout_rate)
         )
 
-        # Residual backbone: 4 stages, each with a transition block (in -> out)
-        # followed by a stabilisation block (out -> out)
+        # 4 residual stages
         for i in range(4):
             in_ch  = self.filters[i]
             out_ch = self.filters[i + 1]
@@ -102,21 +67,15 @@ class ResNetImprovedV2(nn.Module):
                                  dropout_rate=self.dropout_rate)
             )
 
-            # Optional SE recalibration after each residual stage.
             if use_se_block:
                 self.layers.append(SEBlock(channels=out_ch))
 
-            # Optional progressive spatial downsampling. Halves F and T after
-            # each stage, keeping deep-layer feature maps small in memory and
-            # bounding the parameter count of the eventual Flatten + LazyLinear.
             if self.pool_every_stage:
                 self.layers.append(nn.MaxPool2d(kernel_size=(2, 2)))
 
-        # Optional time-frequency spatial attention before global pooling.
         if use_tf_attention:
             self.layers.append(TFAttentionBlock())
 
-        # Final pooling before the classification head.
         if self.pool_output_size is None:
             self.layers.append(nn.AvgPool2d(kernel_size=(2, 2)))
         else:

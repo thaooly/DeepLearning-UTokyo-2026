@@ -3,36 +3,21 @@ import torch
 
 def pocs_postprocess(x, hyperparameters):
     """
-    Apply Projection Onto Convex Sets (POCS) post-processing to a batch of spectrograms.
+    POCS (Projection Onto Convex Sets) post-processing, applied after the
+    AutoEncoder reconstruction to enforce known physical constraints on
+    the spectrogram (see course IP26_9).
 
-    Application to audio classification:
-        After reconstruction by the AutoEncoder, the output spectrogram may violate
-        known physical constraints of bird vocalisations. POCS restores consistency
-        by projecting the reconstructed spectrogram onto three convex sets:
-
-            C1 — Bounded signals :
-                Energy values must be non-negative (log-compressed power cannot be
-                physically negative after reconstruction). Projection: value clipping.
-
-            C2 — Band-limited signals :
-                Malaysian garden birds vocalise primarily between ~500 Hz and ~8 kHz.
-                Energy outside this band is noise. Projection: band-pass binary mask
-                on the frequency axis (generalisation of the low-pass filter case).
-
-            C3 — Finite-support signals :
-                The clip is exactly 3 seconds; no acoustic energy should exist outside
-                the clip boundaries. Projection: zero-masking of boundary frames.
+    3 constraints, applied as alternating projections for n_iter rounds:
+        C1 - energy >= 0                          (clip negative values)
+        C2 - energy only in [f_min_bin, f_max_bin] (zero out band mask)
+        C3 - no energy outside the clip            (zero first/last frame)
 
     Args:
-        x               : Tensor of shape (B, 1, F, T) — batch of spectrograms.
-        hyperparameters : dict with optional keys:
-                            "pocs_n_iter"    — number of alternating projection cycles (default: 10).
-                            "pocs_f_min_bin" — lower frequency bin index of the pass band (default: 2).
-                            "pocs_f_max_bin" — upper frequency bin index of the pass band (default: 50).
+        x : Tensor (B, 1, F, T)
+        hyperparameters : dict, keys pocs_n_iter / pocs_f_min_bin / pocs_f_max_bin
 
     Returns:
-        Tensor of shape (B, 1, F, T) on the same device as the input.
-
+        Tensor (B, 1, F, T), same device as x.
     """
     n_iter    = hyperparameters.get("pocs_n_iter",    10)
     f_min_bin = hyperparameters.get("pocs_f_min_bin",  2)
@@ -48,31 +33,18 @@ def pocs_postprocess(x, hyperparameters):
     return s
 
 
-# -----------------------------------------------------------------------
-# Individual projection operators
-# -----------------------------------------------------------------------
-
 def _project_c1_nonnegative(s):
-    """
-    Project onto C1: the set of signals bounded below by zero.
-    """
     return torch.clamp(s, min=0.0)
 
 
 def _project_c2_bandlimited(s, f_min_bin, f_max_bin):
-    """
-    Project onto C2: the set of band-limited signals within [f_min_bin, f_max_bin].
-    """
     mask = torch.zeros_like(s)
     mask[:, :, f_min_bin:f_max_bin, :] = 1.0
     return s * mask
 
 
 def _project_c3_finite_support(s):
-    """
-    Project onto C3: the set of finite-support signals.
-    """
     s = s.clone()
-    s[:, :, :,  0] = 0.0   # zero first frame
-    s[:, :, :, -1] = 0.0   # zero last frame
+    s[:, :, :,  0] = 0.0  
+    s[:, :, :, -1] = 0.0 
     return s

@@ -6,24 +6,17 @@ from Utilities.Utilities import Utilities
 
 def spec_augment(x, freq_mask_param=15, time_mask_param=30, n_freq_masks=2, n_time_masks=2):
     """
-    Apply SpecAugment to a batch of spectrograms. (regulariser against overfitting)
-
-    Randomly masks contiguous bands of frequency bins and contiguous
-    intervals of time frames, setting them to zero.
-
-    Applied at every call (i.e. every batch, every epoch) so the
-    network sees a different masking pattern each time it encounters a
-    given clip.
+    SpecAugment: zero out random frequency bands and time chunks in the
+    spectrogram. Forces the network to not rely on one specific band/frame,
+    re-applied every batch so the masking is never the same twice.
 
     Args:
-        x                : Tensor (B, 1, F, T) — batch of spectrograms.
-        freq_mask_param  : maximum width (in bins) of each frequency mask.
-        time_mask_param  : maximum width (in frames) of each time mask.
-        n_freq_masks     : number of frequency masks applied per batch.
-        n_time_masks     : number of time masks applied per batch.
+        x : Tensor (B, 1, F, T)
+        freq_mask_param / time_mask_param : max width of each mask
+        n_freq_masks / n_time_masks       : how many masks per batch
 
     Returns:
-        Tensor (B, 1, F, T) — augmented spectrograms (new tensor, input untouched).
+        Tensor (B, 1, F, T), new tensor (input not modified in place)
     """
     x = x.clone()
     F = x.shape[2]
@@ -48,28 +41,18 @@ def spec_augment(x, freq_mask_param=15, time_mask_param=30, n_freq_masks=2, n_ti
 
 def mixup_batch(x, y, alpha=0.4):
     """
-    Apply Mixup augmentation to a batch of spectrograms.
-
-    Creates synthetic training examples by linearly interpolating between
-    pairs of samples and their labels.
-
-    For each batch:
-        lambda ~ Beta(alpha, alpha)
-        x_mixed = lambda * x + (1 - lambda) * x[shuffled]
-        y_mixed is returned as (y, y_shuffled, lambda) for use in mixup_loss
+    Mixup: blends two random samples of the batch (and their labels) with
+    a random ratio lambda ~ Beta(alpha, alpha). Prevents the network from
+    memorising exact training samples since it almost never sees a "pure"
+    spectrogram with a single clean label.
 
     Args:
-        x     : Tensor (B, 1, F, T) — batch of spectrograms.
-        y     : Tensor (B,) — integer class labels.
-        alpha : Beta distribution parameter controlling mix strength.
-                Low alpha (e.g. 0.2) → lambda near 0 or 1 (weak mixing).
-                Higher alpha (e.g. 0.4) → more balanced mixing.
+        x : Tensor (B, 1, F, T)
+        y : Tensor (B,) integer labels
+        alpha : Beta distribution param, higher = more balanced mixing
 
     Returns:
-        x_mixed  : Tensor (B, 1, F, T) — mixed spectrograms.
-        y_a      : Tensor (B,) — original labels.
-        y_b      : Tensor (B,) — shuffled labels.
-        lam      : float — mixing coefficient in [0, 1].
+        x_mixed, y_a (original labels), y_b (shuffled labels), lam
     """
     lam = torch.distributions.Beta(alpha, alpha).sample().item()
 
@@ -85,17 +68,8 @@ def mixup_batch(x, y, alpha=0.4):
 
 def mixup_loss(criterion, y_hat, y_a, y_b, lam):
     """
-    Compute the Mixup loss as a weighted combination of two cross-entropy terms.
-
-    Args:
-        criterion : loss function (CrossEntropyLoss instance).
-        y_hat     : Tensor (B, n_classes) — model logits.
-        y_a       : Tensor (B,) — original labels.
-        y_b       : Tensor (B,) — shuffled labels.
-        lam       : float — mixing coefficient.
-
-    Returns:
-        Scalar loss tensor.
+    Loss for a mixed batch: weighted sum of CE(y_hat, y_a) and CE(y_hat, y_b),
+    equivalent to applying CE on the mixed one-hot label without building it.
     """
     return lam * criterion(y_hat, y_a) + (1 - lam) * criterion(y_hat, y_b)
 
@@ -130,19 +104,18 @@ class TrainerClassifier:
         best_epoch = 0
         best_model_weights = None
 
-        # SpecAugment configuration (disabled by default).
+        # both disabled by default, controlled by hyperparameter flags
         use_spec_augment = self.hyperparameter.get("use_spec_augment", False)
         freq_mask_param  = self.hyperparameter.get("spec_augment_freq_mask", 15)
         time_mask_param  = self.hyperparameter.get("spec_augment_time_mask", 30)
         n_freq_masks     = self.hyperparameter.get("spec_augment_n_freq_masks", 2)
         n_time_masks     = self.hyperparameter.get("spec_augment_n_time_masks", 2)
 
-        # Mixup configuration (disabled by default).
         use_mixup  = self.hyperparameter.get("use_mixup", False)
         mixup_alpha = self.hyperparameter.get("mixup_alpha", 0.4)
 
         for epoch in range(self.hyperparameter["max_epoch"]):
-            # --- PHASE D'ENTRAÎNEMENT ---
+            # --- TRAINING ---
             self.model.train()
             total_train_loss = 0.0
             total_train_correct = 0
@@ -155,7 +128,7 @@ class TrainerClassifier:
                 x = self.x_train[n].to(self.device)
                 y = self.y_train[n].to(self.device)
 
-                # SpecAugment (masking in frequency and time).
+                # SpecAugment first so masked zones also get mixed by Mixup below
                 if use_spec_augment:
                     x = spec_augment(
                         x,
@@ -165,15 +138,12 @@ class TrainerClassifier:
                         n_time_masks=n_time_masks,
                     )
 
-                # Mixup (linear interpolation between pairs of samples).
                 if use_mixup:
                     x, y_a, y_b, lam = mixup_batch(x, y, alpha=mixup_alpha)
                     y_hat = self.model(x)
                     loss  = mixup_loss(self.scope.criterion, y_hat, y_a, y_b, lam)
-                    # Accuracy is measured against the dominant label (y_a),
-                    # which corresponds to the larger mixing coefficient lam.
-                    # This slightly underestimates true performance when lam < 0.5
-                    # but gives a consistent and interpretable training metric.
+                    # accuracy measured against the dominant label only,
+                    # train accuracy will look lower than usual, that's expected
                     correct = self.count_correct(y_a, y_hat)
                 else:
                     y_hat   = self.model(x)
@@ -198,7 +168,8 @@ class TrainerClassifier:
             avg_train_loss     = total_train_loss / total_train_samples
             avg_train_accuracy = total_train_correct / total_train_samples * 100
 
-            # --- PHASE DE VALIDATION ---
+            # --- VALIDATION PHASE ---
+            # no augmentation here
             self.model.eval()
             total_valid_loss = 0.0
             total_valid_correct = 0
@@ -221,7 +192,6 @@ class TrainerClassifier:
             avg_valid_loss     = total_valid_loss / total_valid_samples
             avg_valid_accuracy = total_valid_correct / total_valid_samples * 100
             
-            # Affichage des logs
             print(f"Epoch: {epoch+1}/{self.hyperparameter['max_epoch']}")
             print(f"Training Loss: {avg_train_loss:.4f} - Training Acc: {avg_train_accuracy:.4f}")
             print(f"Validation Loss: {avg_valid_loss:.4f} - Validation Acc: {avg_valid_accuracy:.4f}")
@@ -269,4 +239,4 @@ class TrainerClassifier:
 class TrainerTextClassifier:
     def __init__(self, hyperparameter):
         self.hyperparameter = hyperparameter
-        self.n_batches = 100  # if too slow, change, OG was 2000
+        self.n_batches = 100 

@@ -2,7 +2,7 @@ import torch
 import torch.nn as nn
 import numpy as np
 import math
-#from torch.nn import Flatten
+from torch.nn import Flatten
 
 class DenseBlock(nn.Module):
 
@@ -64,10 +64,12 @@ class Conv2DBlock(nn.Module):
                  dropout_rate=0.1, stride=1):
 
         super(Conv2DBlock, self).__init__()
+        # stride=1 keeps padding='same' (output size = input size)
+        # stride>1 needs explicit padding instead, used for downsampling in the AE encoder
         self.conv_layer = nn.Conv2d(in_channels=in_channels,
                                     out_channels=out_channels,
                                     kernel_size=kernel_size,
-                                    stride=stride,                              # ← utiliser stride
+                                    stride=stride,
             padding=1 if stride > 1 else 'same')
         self.activation = activation
         self.batch_norm_layer = nn.BatchNorm2d(out_channels) if batch_normalization else None
@@ -105,6 +107,7 @@ class BasicResNetBlock(nn.Module):
                                         batch_normalization=batch_normalization,
                                         dropout_rate=dropout_rate)
 
+        # identity shortcut when channels match, 1x1 conv otherwise to match dimensions
         if in_channels == out_channels:
             self.shortcut = nn.Identity()
         else:
@@ -148,6 +151,7 @@ class UnFlattenDenseBlock(nn.Module):
         return x
 
 class ConvTranspose2DBlock(nn.Module):
+    # Conv2DBlock for the AE decoder, always upsamples by 2
     def __init__(self, in_channels, out_channels, kernel_size, activation=nn.ReLU,
                  batch_normalization=False, dropout_rate=0.1):
         super(ConvTranspose2DBlock, self).__init__()
@@ -166,30 +170,18 @@ class ConvTranspose2DBlock(nn.Module):
         x = self.activation(x)
         x = self.dropout_layer(x)
         return x
+
+
 class SEBlock(nn.Module):
     """
-    Squeeze-and-Excitation Block (Hu et al., 2018).
+    Squeeze-and-Excitation block (Hu et al., 2018).
+    Learns a per-channel weight so the network can amplify informative
+    frequency channels and suppress noisy ones, instead of treating all
+    channels equally.
 
-    Recalibrates channel-wise feature responses by explicitly modelling
-    inter-channel dependencies through a lightweight gating mechanism:
-
-        1. Squeeze   : global average pooling collapses spatial dimensions
-                       to a channel descriptor vector of shape (B, C).
-        2. Excitation: two fully-connected layers with a bottleneck learn
-                       a channel-wise gating vector in (0, 1)^C.
-        3. Scale     : each channel of the input feature map is multiplied
-                       by its corresponding gate value.
-
-    Motivation for bird audio classification:
-        Different frequency channels in a spectrogram carry vastly different
-        amounts of discriminative information — the fundamental frequency band
-        of a species is informative while adjacent noise bands are not. The SE
-        block learns to up-weight informative channels and suppress others,
-        with negligible parameter overhead (2 × C²/reduction weights per block).
-
-    Args:
-        channels  : number of input (and output) channels C.
-        reduction : bottleneck compression factor (default: 4).
+    squeeze: global avg pool (B,C,F,T) -> (B,C,1,1)
+    excitation: 2 FC layers with bottleneck -> per-channel weight in (0,1)
+    scale: multiply input by its channel weights
     """
 
     def __init__(self, channels, reduction=4):
@@ -213,28 +205,10 @@ class SEBlock(nn.Module):
 
 class TFAttentionBlock(nn.Module):
     """
-    Time-Frequency Attention Block (inspired by CBAM, Woo et al., 2018).
-
-    Applies two independent attention masks over the spectrogram axes:
-
-        - Frequency attention : collapses the time axis by average pooling,
-          applies a vertical convolution (7×1), and produces a per-frequency-bin
-          gate of shape (B, 1, F, 1).
-
-        - Time attention      : collapses the frequency axis by average pooling,
-          applies a horizontal convolution (1×7), and produces a per-frame
-          gate of shape (B, 1, 1, T).
-
-    The two masks are multiplied element-wise onto the input feature map,
-    allowing the network to jointly focus on the most relevant frequency bands
-    and temporal frames.
-
-    Motivation for bird audio classification:
-        Bird vocalisations are localised both in frequency (species-specific
-        pitch range) and in time (discrete syllables separated by silence).
-        Dual-axis attention directly encodes this physical prior, enabling
-        the classifier to suppress uninformative background regions of the
-        spectrogram without increasing the receptive field of the CNN.
+    Time-Frequency attention block (inspired by CBAM, Woo et al., 2018).
+    Two separate 1D attention masks, one over frequency bins and one over
+    time frames, so the network can ignore silent frames and out-of-band
+    frequencies regardless of which channel they're in.
     """
 
     def __init__(self):
@@ -243,15 +217,15 @@ class TFAttentionBlock(nn.Module):
         self.time_conv = nn.Conv2d(1, 1, kernel_size=(1, 7), padding=(0, 3), bias=False)
 
     def forward(self, x):
-        # Collapse channels to obtain a single-channel spatial map.
+        # average over channels to get a single (F,T) map
         x_avg = x.mean(dim=1, keepdim=True)              # (B, 1, F, T)
 
-        # Frequency attention: pool over time, convolve vertically.
+        # frequency mask: avg over time, conv over F
         freq_w = torch.sigmoid(
             self.freq_conv(x_avg.mean(dim=3, keepdim=True))
         )                                                 # (B, 1, F, 1)
 
-        # Time attention: pool over frequency, convolve horizontally.
+        # time mask: avg over freq, conv over T
         time_w = torch.sigmoid(
             self.time_conv(x_avg.mean(dim=2, keepdim=True))
         )                                                 # (B, 1, 1, T)

@@ -25,7 +25,7 @@ class ScopeClassifier:
                 lr=hyperparameters["learning_rate"],
                 weight_decay=weight_decay,
             )
-        
+
         if "patience_lr" in hyperparameters:
             lr_factor = hyperparameters.get("lr_factor", 0.1)
             self.scheduler = ReduceLROnPlateau(
@@ -34,10 +34,9 @@ class ScopeClassifier:
                 patience=hyperparameters["patience_lr"],
                 factor=lr_factor,
             )
-            #after patience epoch, if the accuracy isn't changed, we divide by 10 the learning rate
         else:
             self.scheduler = None 
-        
+
         if "early_stopping" in hyperparameters:
             self.early_stopper = EarlyStopper(hyperparameters=hyperparameters)
         else:
@@ -62,5 +61,3 @@ class ScopeAutoencoder:
         autoencoder_parameters = encoder_parameters + decoder_parameters
 
         self.optimizer = optim.Adam(autoencoder_parameters, lr=hyperparameters["learning_rate"])
-
-        
