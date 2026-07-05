@@ -1,0 +1,15 @@
+torch
+torchaudio
+torchvision
+numpy
+matplotlib
+scipy
+scikit-learn
+seaborn
+soundfile
+tqdm
+requests
+pandas
+torchinfo
+tabulate
+rich
